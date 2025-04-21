@@ -33,16 +33,43 @@ def pair_trading_signals(ticker1, ticker2, start='2021-01-01', end='2024-12-31',
     signals.loc[zscore < -entry_threshold, 'position'] = 1
     signals['position'] = signals['position'].ffill().fillna(0)
 
-    plt.figure(figsize=(14, 6))
-    plt.plot(signals.index, signals['zscore'], label='Z-score', color='blue')
-    plt.axhline(entry_threshold, color='red', linestyle='--', label='Entry threshold')
-    plt.axhline(-entry_threshold, color='green', linestyle='--', label='Entry threshold')
-    plt.axhline(0, color='black', linestyle=':')
-    plt.title(f'Z-score spread: {ticker1} vs {ticker2}')
-    plt.legend()
-    plt.grid(True)
+    returns1 = np.log(df[ticker1] / df[ticker1].shift(1))
+    returns2 = np.log(df[ticker2] / df[ticker2].shift(1))
+    position = signals['position'].shift(1)
+
+    pnl = position * (returns1 - beta * returns2)
+    cumulative = pnl.cumsum()
+
+    sharpe_ratio = (pnl.mean() / pnl.std()) * np.sqrt(365)
+
+    entry_points = (signals['position'].diff() != 0) & (signals['position'] != 0)
+    exit_points = (signals['position'].diff() != 0) & (signals['position'] == 0)
+
+    fig, axs = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+
+    axs[0].plot(cumulative, label='Equity Curve', color='purple')
+    axs[0].set_title(f'Pair Trading Backtest: {ticker1} vs {ticker2}\nSharpe Ratio: {sharpe_ratio:.2f}')
+    axs[0].set_ylabel('Cumulative Return')
+    axs[0].grid(True)
+    axs[0].legend()
+
+    axs[1].plot(signals.index, signals['zscore'], label='Z-score', color='blue')
+    axs[1].axhline(entry_threshold, color='red', linestyle='--', label='Entry threshold')
+    axs[1].axhline(-entry_threshold, color='green', linestyle='--')
+    axs[1].axhline(0, color='black', linestyle=':')
+    axs[1].plot(signals.index[entry_points], signals['zscore'][entry_points], 'rx', label='Entry', markersize=8)
+    axs[1].plot(signals.index[exit_points], signals['zscore'][exit_points], 'kx', label='Exit', markersize=8)
+    axs[1].set_title(f'Z-score spread: {ticker1} vs {ticker2}')
+    axs[1].set_ylabel('Z-score')
+    axs[1].grid(True)
+    axs[1].legend()
+
+    plt.xlabel('Date')
+    plt.tight_layout()
     plt.show()
 
-    return signals
+    return signals, pnl, cumulative, sharpe_ratio
 
-signals = pair_trading_signals('ETH-USD', 'BTC-USD')
+
+signals, daily_pnl, cumulative, sharpe = pair_trading_signals('SOL-USD', 'BTC-USD')
+print(f"Sharpe Ratio: {sharpe:.2f}")
