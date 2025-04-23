@@ -4,6 +4,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
+def rolling_beta(y, x, window):
+    betas = [np.nan] * window
+    for i in range(window, len(x)):
+        X_window = sm.add_constant(x[i-window:i])
+        model = sm.OLS(y[i-window:i], X_window).fit()
+        betas.append(model.params[1])
+    return pd.Series(betas, index=x.index)
+
 def pair_trading_signals(ticker1, ticker2, start='2021-07-01', end='2024-06-30',
                          window=30, entry_threshold=1, exit_threshold=0):
 
@@ -17,10 +25,8 @@ def pair_trading_signals(ticker1, ticker2, start='2021-07-01', end='2024-06-30',
     df.columns = [ticker1, ticker2]
     df = df.dropna()
 
-    X = sm.add_constant(df[ticker1])
-    model = sm.OLS(df[ticker2], X).fit()
-    beta = model.params[ticker1]
-    spread = df[ticker2] - beta * df[ticker1]
+    beta_series = rolling_beta(df[ticker2], df[ticker1], window)
+    spread = df[ticker2] - beta_series * df[ticker1]
 
     spread_mean = spread.rolling(window=window).mean()
     spread_std = spread.rolling(window=window).std()
@@ -34,13 +40,10 @@ def pair_trading_signals(ticker1, ticker2, start='2021-07-01', end='2024-06-30',
     signals.loc[zscore.abs() < exit_threshold, 'position'] = 0
     signals['position'] = signals['position'].ffill().fillna(0)
 
-    returns1 = np.log(df[ticker1] / df[ticker1].shift(1))
-    returns2 = np.log(df[ticker2] / df[ticker2].shift(1))
+    spread_ret = spread.diff()
     position = signals['position'].shift(1)
-
-    pnl = position * (returns1 - beta * returns2)
+    pnl = position * spread_ret
     cumulative = pnl.cumsum()
-
     sharpe_ratio = (pnl.mean() / pnl.std()) * np.sqrt(365)
 
     entry_points = (signals['position'].diff() != 0) & (signals['position'] != 0)
@@ -70,7 +73,6 @@ def pair_trading_signals(ticker1, ticker2, start='2021-07-01', end='2024-06-30',
     plt.show()
 
     return signals, pnl, cumulative, sharpe_ratio
-
 
 signals, daily_pnl, cumulative, sharpe = pair_trading_signals('BTC-USD', 'ETH-USD')
 print(f"Sharpe Ratio: {sharpe:.2f}")
